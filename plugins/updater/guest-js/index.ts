@@ -9,26 +9,32 @@
  * @module
  */
 
-import { invoke, Channel, Resource } from '@tauri-apps/api/core'
+import { Channel, invoke, Resource } from '@tauri-apps/api/core';
 
 /** Options used when checking for updates */
 interface CheckOptions {
   /**
    * The headers to send along with the update check request.
    */
-  headers?: HeadersInit
+  headers?: HeadersInit;
   /**
    * Timeout in milliseconds
    */
-  timeout?: number
+  timeout?: number;
   /**
    * A proxy url to be used when checking and downloading updates.
    */
-  proxy?: string
+  proxy?: string;
   /**
    * Target identifier for the running application. This is sent to the backend.
    */
-  target?: string
+  target?: string;
+  /**
+   * Allow downgrades to previous versions by not checking if the current version is greater than the available version.
+   */
+  allowDowngrades?: boolean;
+
+  endpoints?: string[];
 }
 
 /** Options used when downloading an update */
@@ -36,11 +42,11 @@ interface DownloadOptions {
   /**
    * The headers to send along with the update download request.
    */
-  headers?: HeadersInit
+  headers?: HeadersInit;
   /**
    * Timeout in milliseconds
    */
-  timeout?: number
+  timeout?: number;
 }
 
 /** Options used when installing an update */
@@ -48,23 +54,23 @@ interface InstallOptions {
   /**
    * If the Windows installer should restart the app after installed, default is `true`
    */
-  restartAfterInstall?: boolean
+  restartAfterInstall?: boolean;
 }
 
 interface UpdateMetadata {
-  rid: number
-  currentVersion: string
-  version: string
-  date?: string
-  body?: string
-  rawJson: Record<string, unknown>
+  rid: number;
+  currentVersion: string;
+  version: string;
+  date?: string;
+  body?: string;
+  rawJson: Record<string, unknown>;
 }
 
 /** Updater download event */
 type DownloadEvent =
-  | { event: 'Started'; data: { contentLength?: number } }
-  | { event: 'Progress'; data: { chunkLength: number } }
-  | { event: 'Finished' }
+  | { event: 'Started'; data: { contentLength?: number; }; }
+  | { event: 'Progress'; data: { chunkLength: number; }; }
+  | { event: 'Finished'; };
 
 /**
  * An update announced by the update server, as returned by {@linkcode check}.
@@ -81,29 +87,29 @@ class Update extends Resource {
    *
    * @deprecated This is always true, check if the return value is `null` instead when using {@linkcode check}
    */
-  available: boolean
+  available: boolean;
   /**
    * The version of the application that is currently running.
    */
-  currentVersion: string
+  currentVersion: string;
   /**
    * The version announced by the update server.
    */
-  version: string
+  version: string;
   /**
    * The publish date of the update as an RFC 3339 string, when the server provided one.
    */
-  date?: string
+  date?: string;
   /**
    * The release notes of the update, when the server provided them.
    */
-  body?: string
+  body?: string;
   /**
    * The raw update manifest returned by the server, useful when it contains
    * additional fields that the updater itself does not handle.
    */
-  rawJson: Record<string, unknown>
-  private downloadedBytes?: Resource
+  rawJson: Record<string, unknown>;
+  private downloadedBytes?: Resource;
 
   /**
    * Creates an update from the metadata returned by the backend.
@@ -119,13 +125,13 @@ class Update extends Resource {
    * ```
    */
   constructor(metadata: UpdateMetadata) {
-    super(metadata.rid)
-    this.available = true
-    this.currentVersion = metadata.currentVersion
-    this.version = metadata.version
-    this.date = metadata.date
-    this.body = metadata.body
-    this.rawJson = metadata.rawJson
+    super(metadata.rid);
+    this.available = true;
+    this.currentVersion = metadata.currentVersion;
+    this.version = metadata.version;
+    this.date = metadata.date;
+    this.body = metadata.body;
+    this.rawJson = metadata.rawJson;
   }
 
   /**
@@ -155,20 +161,20 @@ class Update extends Resource {
     onEvent?: (progress: DownloadEvent) => void,
     options?: DownloadOptions
   ): Promise<void> {
-    const channel = new Channel<DownloadEvent>()
+    const channel = new Channel<DownloadEvent>();
     if (onEvent) {
-      channel.onmessage = onEvent
+      channel.onmessage = onEvent;
     }
     const downloadedBytesRid = await invoke<number>('plugin:updater|download', {
       onEvent: channel,
       rid: this.rid,
       ...options,
       headers: toRustHeaders(options?.headers)
-    })
+    });
     // release the bytes of a previous download, which would otherwise be kept
     // in memory until the webview is destroyed
-    await this.downloadedBytes?.close().catch(() => {})
-    this.downloadedBytes = new Resource(downloadedBytesRid)
+    await this.downloadedBytes?.close().catch(() => { });
+    this.downloadedBytes = new Resource(downloadedBytesRid);
   }
 
   /**
@@ -194,17 +200,17 @@ class Update extends Resource {
    */
   async install(options?: InstallOptions): Promise<void> {
     if (!this.downloadedBytes) {
-      throw new Error('Update.install called before Update.download')
+      throw new Error('Update.install called before Update.download');
     }
 
     await invoke('plugin:updater|install', {
       updateRid: this.rid,
       bytesRid: this.downloadedBytes.rid,
       ...options
-    })
+    });
 
     // Don't need to call close, we did it in rust side already
-    this.downloadedBytes = undefined
+    this.downloadedBytes = undefined;
   }
 
   /**
@@ -234,16 +240,16 @@ class Update extends Resource {
     onEvent?: (progress: DownloadEvent) => void,
     options?: DownloadOptions & InstallOptions
   ): Promise<void> {
-    const channel = new Channel<DownloadEvent>()
+    const channel = new Channel<DownloadEvent>();
     if (onEvent) {
-      channel.onmessage = onEvent
+      channel.onmessage = onEvent;
     }
     await invoke('plugin:updater|download_and_install', {
       onEvent: channel,
       rid: this.rid,
       ...options,
       headers: toRustHeaders(options?.headers)
-    })
+    });
   }
 
   /**
@@ -260,8 +266,8 @@ class Update extends Resource {
    * ```
    */
   async close(): Promise<void> {
-    await this.downloadedBytes?.close()
-    await super.close()
+    await this.downloadedBytes?.close();
+    await super.close();
   }
 }
 
@@ -289,8 +295,8 @@ async function check(options?: CheckOptions): Promise<Update | null> {
   const metadata = await invoke<UpdateMetadata | null>('plugin:updater|check', {
     ...options,
     headers: toRustHeaders(options?.headers)
-  })
-  return metadata ? new Update(metadata) : null
+  });
+  return metadata ? new Update(metadata) : null;
 }
 
 /**
@@ -300,8 +306,9 @@ async function check(options?: CheckOptions): Promise<Update | null> {
 function toRustHeaders(
   headers?: HeadersInit
 ): Array<[string, string]> | undefined {
-  return headers ? Array.from(new Headers(headers).entries()) : undefined
+  return headers ? Array.from(new Headers(headers).entries()) : undefined;
 }
 
-export type { CheckOptions, DownloadOptions, DownloadEvent }
-export { check, Update }
+export { check, Update };
+export type { CheckOptions, DownloadEvent, DownloadOptions };
+
