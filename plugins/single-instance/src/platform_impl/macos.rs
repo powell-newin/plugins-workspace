@@ -28,17 +28,25 @@ impl Drop for InstanceLock {
     }
 }
 
+#[cfg(debug_assertions)]
+static IS_PRIMARY_APP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
 pub fn init<R: Runtime>(cb: Box<SingleInstanceCallback<R>>) -> TauriPlugin<R> {
     plugin::Builder::new("single-instance")
         .setup(|app, _api| {
             let socket = socket_path(app.config(), app.package_info());
 
             // Notify the singleton which may or may not exist.
-            match notify_singleton(&socket) {
+            match notify_singleton(&socket, &std::env::args().collect::<Vec<_>>()) {
                 Ok(_) => {
+                    #[cfg(debug_assertions)]
+                    IS_PRIMARY_APP.set(false).unwrap();
+                    #[cfg(not(debug_assertions))]
                     std::process::exit(0);
                 }
                 Err(e) => {
+                    #[cfg(debug_assertions)]
+                    IS_PRIMARY_APP.set(true).unwrap();
                     match e.kind() {
                         ErrorKind::NotFound | ErrorKind::ConnectionRefused => {
                             // This process claims itself as singleton as likely none exists
@@ -56,6 +64,33 @@ pub fn init<R: Runtime>(cb: Box<SingleInstanceCallback<R>>) -> TauriPlugin<R> {
                 }
             }
             Ok(())
+        })
+        .on_event(|app, event| match event {
+            RunEvent::Exit => {
+                destroy(app);
+            }
+            #[cfg(debug_assertions)]
+            RunEvent::Opened { urls } => {
+                if let Some(true) = IS_PRIMARY_APP.get() {
+                    return;
+                }
+                let socket = socket_path(app.config(), app.package_info());
+                match notify_singleton(
+                    &socket,
+                    &std::env::args()
+                        .take(1)
+                        .chain(urls.iter().map(|url| url.to_string()))
+                        .collect::<Vec<String>>(),
+                ) {
+                    Ok(_) => {
+                        std::process::exit(0);
+                    }
+                    Err(e) => {
+                        tracing::error!(?e);
+                    }
+                }
+            }
+            _ => {}
         })
         .build()
 }
@@ -77,7 +112,7 @@ fn socket_cleanup(socket: &PathBuf) {
     let _ = std::fs::remove_file(socket);
 }
 
-fn notify_singleton(socket: &PathBuf) -> Result<(), Error> {
+fn notify_singleton(socket: &PathBuf, args: &[String]) -> Result<(), std::io::Error> {
     let stream = UnixStream::connect(socket)?;
     let mut bf = BufWriter::new(&stream);
     let cwd = std::env::current_dir()
@@ -86,10 +121,7 @@ fn notify_singleton(socket: &PathBuf) -> Result<(), Error> {
         .into_owned();
     bf.write_all(cwd.as_bytes())?;
     bf.write_all(b"\0\0")?;
-    let args_joined = std::env::args_os()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect::<Vec<String>>()
-        .join("\0");
+    let args_joined = args.join("\0");
     bf.write_all(args_joined.as_bytes())?;
     bf.flush()?;
     drop(bf);
