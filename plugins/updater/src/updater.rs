@@ -472,7 +472,6 @@ impl Updater {
             }
 
             let response = request
-                .use_rustls_tls()
                 .build()?
                 .get(url)
                 .headers(headers.clone())
@@ -681,7 +680,6 @@ impl Update {
             request = configure_client(request);
         }
         let response = request
-            .use_rustls_tls()
             .build()?
             .get(self.download_url.clone())
             .headers(headers)
