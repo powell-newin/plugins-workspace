@@ -48,20 +48,9 @@ impl<R: Runtime> Default for Builder<R> {
         Self {
             callback: Box::new(move |_app, _args, _| {
                 #[cfg(feature = "deep-link")]
-                if let Some(deep_link) = app.try_state::<tauri_plugin_deep_link::DeepLink<R>>() {
-                    deep_link.handle_cli_arguments(args.iter());
-                    #[cfg(all(target_os = "macos", debug_assertions))]
-                    {
-                        let mut args = args.iter();
-                        args.next();
-                        let arg = args.next();
-                        use tauri::Emitter;
-                        if let Some(url) = arg {
-                            let _ = app.emit("deep-link://new-url", vec![url]);
-                        }
-                    }
+                if let Some(deep_link) = _app.try_state::<tauri_plugin_deep_link::DeepLink<R>>() {
+                    deep_link.handle_cli_arguments(_args.iter());
                 }
-                f(app, args, cwd)
             }),
             dbus_id: None,
         }
@@ -83,6 +72,16 @@ impl<R: Runtime> Builder<R> {
             #[cfg(feature = "deep-link")]
             if let Some(deep_link) = app.try_state::<tauri_plugin_deep_link::DeepLink<R>>() {
                 deep_link.handle_cli_arguments(args.iter());
+                #[cfg(all(target_os = "macos", debug_assertions))]
+                {
+                    let mut args = args.iter();
+                    args.next();
+                    let arg = args.next();
+                    use tauri::Emitter;
+                    if let Some(url) = arg {
+                        let _ = app.emit("deep-link://new-url", vec![url]);
+                    }
+                }
             }
             f(app, args, cwd)
         });
