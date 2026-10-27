@@ -3,14 +3,16 @@
 // SPDX-License-Identifier: MIT
 
 use std::{
-    io::{BufWriter, Error, ErrorKind, Write},
+    io::{BufWriter, ErrorKind, Write},
     os::unix::net::UnixStream,
     path::PathBuf,
 };
 
 #[cfg(feature = "semver")]
 use crate::semver_compat::semver_compat_string;
-use crate::{SingleInstanceCallback, manage_instance_lock};
+use crate::{SingleInstanceCallback, destroy, manage_instance_lock};
+#[cfg(debug_assertions)]
+use tauri::RunEvent;
 use tauri::{
     AppHandle, Config, Manager, Resource, Runtime,
     plugin::{self, TauriPlugin},
